@@ -1,0 +1,423 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedLibrarian() {
+      return isVerified() && request.auth.token.email == 'amalhmamou701@gmail.com';
+    }
+
+    function isLibrarian() {
+      return isBootstrappedLibrarian() || (
+        isVerified() && exists(/databases/$(database)/documents/librarians/$(request.auth.uid))
+      );
+    }
+
+    // 3. Entity Validation Helpers (Blueprint-synchronized)
+    function isValidCoverImage(data) {
+      return !('coverImage' in data) || (
+        data.coverImage is string
+        && data.coverImage.size() <= 350000
+        && (
+          data.coverImage == ''
+          || (data.coverImage.size() >= 24 && data.coverImage[0:23] == 'data:image/jpeg;base64,')
+          || (data.coverImage.size() >= 23 && data.coverImage[0:22] == 'data:image/png;base64,')
+        )
+      );
+    }
+
+    function isValidBook(data) {
+      return data.keys().hasAll([
+        'title', 'author', 'isbn', 'filiere', 'totalCopies', 'availableCopies', 'qrCode', 'lastLoanId', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'title', 'author', 'isbn', 'filiere', 'totalCopies', 'availableCopies', 'qrCode', 'lastLoanId', 'coverImage', 'updatedAt'
+      ])
+      && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+      && data.author is string && data.author.size() >= 1 && data.author.size() <= 120
+      && data.isbn is string && data.isbn.size() >= 10 && data.isbn.size() <= 20 && data.isbn.matches('^[0-9Xx\\-]+$')
+      && data.filiere in ['GI', 'GE', 'GIM', 'TM', 'RT']
+      && data.totalCopies is int && data.totalCopies >= 1 && data.totalCopies <= 100
+      && data.availableCopies is int && data.availableCopies >= 0 && data.availableCopies <= data.totalCopies
+      && data.qrCode is string && data.qrCode.size() >= 3 && data.qrCode.size() <= 64 && data.qrCode.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.lastLoanId is string && data.lastLoanId.size() >= 1 && data.lastLoanId.size() <= 128 && data.lastLoanId.matches('^[a-zA-Z0-9_\\-]+$')
+      && isValidCoverImage(data)
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll([
+        'uid', 'fullName', 'email', 'role', 'cne', 'filiere', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'uid', 'fullName', 'email', 'role', 'cne', 'filiere', 'createdAt', 'updatedAt'
+      ])
+      && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
+      && data.email is string && data.email.size() >= 3 && data.email.size() <= 150
+      && data.role in ['student', 'librarian']
+      && data.cne is string && data.cne.size() >= 4 && data.cne.size() <= 20 && data.cne.matches('^[A-Z0-9]+$')
+      && data.filiere in ['GI', 'GE', 'GIM', 'TM', 'RT', 'Administration']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidAdherent(data) {
+      return data.keys().hasAll([
+        'cardNumber', 'studentUid', 'fullName', 'cne', 'apogee', 'filiere',
+        'email', 'registrationDate', 'expiryDate', 'status', 'suspensionReason',
+        'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'cardNumber', 'studentUid', 'fullName', 'cne', 'apogee', 'filiere',
+        'email', 'registrationDate', 'expiryDate', 'status', 'suspensionReason',
+        'createdAt', 'updatedAt'
+      ])
+      && data.cardNumber is string && data.cardNumber.size() >= 4 && data.cardNumber.size() <= 40 && data.cardNumber.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.studentUid is string && data.studentUid.size() >= 1 && data.studentUid.size() <= 128 && data.studentUid.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
+      && data.cne is string && data.cne.size() >= 4 && data.cne.size() <= 20 && data.cne.matches('^[A-Z0-9]+$')
+      && data.apogee is string && data.apogee.size() >= 4 && data.apogee.size() <= 20 && data.apogee.matches('^[0-9]+$')
+      && data.filiere in ['GI', 'GE', 'GIM', 'TM', 'RT']
+      && data.email is string && data.email.size() >= 3 && data.email.size() <= 150
+      && data.registrationDate is string && data.registrationDate.size() == 10 && data.registrationDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+      && data.expiryDate is string && data.expiryDate.size() == 10 && data.expiryDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+      && data.status in ['actif', 'suspendu']
+      && data.suspensionReason is string && data.suspensionReason.size() <= 240
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidLibrarianRole(data) {
+      return data.keys().hasAll(['uid', 'email', 'grantedAt'])
+      && data.keys().hasOnly(['uid', 'email', 'grantedAt'])
+      && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.email is string && data.email.size() >= 3 && data.email.size() <= 150
+      && data.grantedAt is timestamp;
+    }
+
+    function isValidLoan(data) {
+      return data.keys().hasAll([
+        'ticketCode', 'bookId', 'bookTitle', 'bookAuthor', 'bookIsbn', 'bookFiliere',
+        'studentUid', 'studentName', 'studentCne', 'studentFiliere',
+        'borrowDate', 'dueDate', 'returnDate', 'status', 'finalPenalty',
+        'reminderCount', 'lastReminderDate', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'ticketCode', 'bookId', 'bookTitle', 'bookAuthor', 'bookIsbn', 'bookFiliere',
+        'studentUid', 'studentName', 'studentCne', 'studentFiliere',
+        'borrowDate', 'dueDate', 'returnDate', 'status', 'finalPenalty',
+        'reminderCount', 'lastReminderDate', 'createdAt', 'updatedAt'
+      ])
+      && data.ticketCode is string && data.ticketCode.size() >= 4 && data.ticketCode.size() <= 40 && data.ticketCode.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.bookId is string && data.bookId.size() >= 1 && data.bookId.size() <= 128 && data.bookId.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.bookTitle is string && data.bookTitle.size() >= 1 && data.bookTitle.size() <= 200
+      && data.bookAuthor is string && data.bookAuthor.size() >= 1 && data.bookAuthor.size() <= 120
+      && data.bookIsbn is string && data.bookIsbn.size() >= 10 && data.bookIsbn.size() <= 20 && data.bookIsbn.matches('^[0-9Xx\\-]+$')
+      && data.bookFiliere in ['GI', 'GE', 'GIM', 'TM', 'RT']
+      && data.studentUid is string && data.studentUid.size() >= 1 && data.studentUid.size() <= 128 && data.studentUid.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 120
+      && data.studentCne is string && data.studentCne.size() >= 4 && data.studentCne.size() <= 20 && data.studentCne.matches('^[A-Z0-9]+$')
+      && data.studentFiliere in ['GI', 'GE', 'GIM', 'TM', 'RT']
+      && data.borrowDate is string && data.borrowDate.size() == 10 && data.borrowDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+      && data.dueDate is string && data.dueDate.size() == 10 && data.dueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+      && data.returnDate is string && data.returnDate.size() <= 10 && data.returnDate.matches('^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+      && data.status in ['reserve', 'en_cours', 'rendu']
+      && data.finalPenalty is number && data.finalPenalty >= 0 && data.finalPenalty <= 10000
+      && data.reminderCount is int && data.reminderCount >= 0 && data.reminderCount <= 100
+      && data.lastReminderDate is string && data.lastReminderDate.size() <= 10 && data.lastReminderDate.matches('^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll([
+        'actorUid', 'actorName', 'actorRole', 'actionType', 'description', 'targetId', 'createdAt'
+      ])
+      && data.keys().hasOnly([
+        'actorUid', 'actorName', 'actorRole', 'actionType', 'description', 'targetId', 'createdAt'
+      ])
+      && data.actorUid is string && data.actorUid.size() >= 1 && data.actorUid.size() <= 128 && data.actorUid.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 120
+      && data.actorRole in ['student', 'librarian']
+      && data.actionType in [
+        'emprunt', 'retour', 'prolongation', 'relance', 'reservation',
+        'ajout_livre', 'modification_livre', 'suppression_livre',
+        'inscription_adherent', 'renouvellement_adherent', 'suspension_adherent', 'reactivation_adherent'
+      ]
+      && data.description is string && data.description.size() >= 1 && data.description.size() <= 300
+      && data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128 && data.targetId.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.createdAt is timestamp;
+    }
+
+    // 4. Collection Match Blocks
+    match /books/{bookId} {
+      allow get: if isValidId(bookId) && (resource == null || resource.data.filiere in ['GI', 'GE', 'GIM', 'TM', 'RT']);
+      allow list: if resource.data.totalCopies >= 1;
+
+      allow create: if isVerified()
+        && isValidId(bookId)
+        && isValidBook(incoming())
+        && incoming().updatedAt == request.time
+        && isLibrarian();
+
+      allow update: if isVerified()
+        && isValidId(bookId)
+        && isValidBook(incoming())
+        && incoming().updatedAt == request.time
+        && (
+          (
+            isLibrarian()
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'author', 'isbn', 'filiere', 'totalCopies', 'availableCopies', 'qrCode', 'lastLoanId', 'coverImage', 'updatedAt'
+            ])
+          )
+          ||
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['availableCopies', 'lastLoanId', 'updatedAt'])
+            && existing().availableCopies >= 1
+            && incoming().availableCopies == existing().availableCopies - 1
+            && !exists(/databases/$(database)/documents/loans/$(incoming().lastLoanId))
+            && existsAfter(/databases/$(database)/documents/loans/$(incoming().lastLoanId))
+            && getAfter(/databases/$(database)/documents/loans/$(incoming().lastLoanId)).data.studentUid == request.auth.uid
+            && getAfter(/databases/$(database)/documents/loans/$(incoming().lastLoanId)).data.bookId == bookId
+          )
+          ||
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['availableCopies', 'lastLoanId', 'updatedAt'])
+            && existing().availableCopies < existing().totalCopies
+            && incoming().availableCopies == existing().availableCopies + 1
+            && exists(/databases/$(database)/documents/loans/$(incoming().lastLoanId))
+            && get(/databases/$(database)/documents/loans/$(incoming().lastLoanId)).data.studentUid == request.auth.uid
+            && get(/databases/$(database)/documents/loans/$(incoming().lastLoanId)).data.bookId == bookId
+            && get(/databases/$(database)/documents/loans/$(incoming().lastLoanId)).data.status == 'reserve'
+            && getAfter(/databases/$(database)/documents/loans/$(incoming().lastLoanId)).data.status == 'rendu'
+          )
+        );
+
+      allow delete: if isVerified() && isValidId(bookId) && isLibrarian();
+    }
+
+    function isUsmbaEmail() {
+      return isVerified()
+        && request.auth.token.email is string
+        && request.auth.token.email.matches('^[^@]+@[uU][sS][mM][bB][aA]\\.[aA][cC]\\.[mM][aA]$');
+    }
+
+    match /users/{userId} {
+      allow get: if isVerified() && isValidId(userId) && (isOwner(userId) || isLibrarian());
+      allow list: if isVerified() && (resource.data.uid == request.auth.uid || isBootstrappedLibrarian());
+
+      allow create: if isVerified()
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && isOwner(userId)
+        && incoming().uid == request.auth.uid
+        && incoming().email == request.auth.token.email
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (incoming().role == 'student' && isUsmbaEmail())
+          || (incoming().role == 'librarian' && isLibrarian())
+        );
+
+      allow update: if isVerified()
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (
+            isOwner(userId)
+            && incoming().role == existing().role
+            && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'cne', 'filiere', 'updatedAt'])
+          )
+          || (
+            isLibrarian()
+            && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'cne', 'filiere', 'role', 'updatedAt'])
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /librarians/{userId} {
+      allow get: if isVerified() && isValidId(userId) && (isOwner(userId) || isLibrarian());
+      allow list: if isBootstrappedLibrarian() && resource.data.uid is string;
+      allow create, update: if isVerified()
+        && isValidId(userId)
+        && isValidLibrarianRole(incoming())
+        && incoming().grantedAt == request.time
+        && isLibrarian();
+      allow delete: if false;
+    }
+
+    match /adherents/{adherentId} {
+      allow get: if isVerified() && isValidId(adherentId) && (
+        existing().studentUid == request.auth.uid || isLibrarian()
+      );
+      allow list: if isVerified() && (
+        resource.data.studentUid == request.auth.uid || isLibrarian()
+      );
+
+      allow create: if isVerified()
+        && isValidId(adherentId)
+        && isValidAdherent(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isLibrarian();
+
+      allow update: if isVerified()
+        && isValidId(adherentId)
+        && isValidAdherent(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && isLibrarian()
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['expiryDate', 'updatedAt'])
+          ||
+          (
+            incoming().status == 'suspendu'
+            && incoming().suspensionReason.size() >= 1
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'suspensionReason', 'updatedAt'])
+          )
+          ||
+          (
+            incoming().status == 'actif'
+            && incoming().suspensionReason == ''
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'suspensionReason', 'updatedAt'])
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /loans/{loanId} {
+      allow get: if isVerified() && isValidId(loanId) && (existing().studentUid == request.auth.uid || isLibrarian());
+      allow list: if isVerified() && (resource.data.studentUid == request.auth.uid || isLibrarian());
+
+      allow create: if isVerified()
+        && isValidId(loanId)
+        && isValidLoan(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && incoming().returnDate == ''
+        && incoming().finalPenalty == 0
+        && incoming().reminderCount == 0
+        && incoming().lastReminderDate == ''
+        && incoming().status in ['en_cours', 'reserve']
+        && (incoming().studentUid == request.auth.uid || isLibrarian())
+        && exists(/databases/$(database)/documents/books/$(incoming().bookId))
+        && getAfter(/databases/$(database)/documents/books/$(incoming().bookId)).data.availableCopies
+           == get(/databases/$(database)/documents/books/$(incoming().bookId)).data.availableCopies - 1;
+
+      allow update: if isVerified()
+        && isValidId(loanId)
+        && isValidLoan(incoming())
+        && existing().status != 'rendu'
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().ticketCode == existing().ticketCode
+        && incoming().bookId == existing().bookId
+        && incoming().studentUid == existing().studentUid
+        && (
+          (
+            isLibrarian()
+            && existing().status == 'reserve'
+            && incoming().status == 'en_cours'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'borrowDate', 'dueDate', 'updatedAt'])
+          )
+          ||
+          (
+            isLibrarian()
+            && existing().status == 'en_cours'
+            && incoming().status == 'en_cours'
+            && incoming().dueDate != existing().dueDate
+            && incoming().diff(existing()).affectedKeys().hasOnly(['dueDate', 'updatedAt'])
+          )
+          ||
+          (
+            isLibrarian()
+            && existing().status in ['en_cours', 'reserve']
+            && incoming().status == 'rendu'
+            && incoming().returnDate != ''
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'returnDate', 'finalPenalty', 'updatedAt'])
+            && getAfter(/databases/$(database)/documents/books/$(existing().bookId)).data.availableCopies
+               == get(/databases/$(database)/documents/books/$(existing().bookId)).data.availableCopies + 1
+          )
+          ||
+          (
+            isLibrarian()
+            && existing().status == 'en_cours'
+            && incoming().status == 'en_cours'
+            && incoming().reminderCount == existing().reminderCount + 1
+            && incoming().lastReminderDate != ''
+            && incoming().lastReminderDate != existing().lastReminderDate
+            && incoming().diff(existing()).affectedKeys().hasOnly(['reminderCount', 'lastReminderDate', 'updatedAt'])
+          )
+          ||
+          (
+            existing().studentUid == request.auth.uid
+            && existing().status == 'reserve'
+            && incoming().status == 'rendu'
+            && incoming().returnDate != ''
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'returnDate', 'updatedAt'])
+            && getAfter(/databases/$(database)/documents/books/$(existing().bookId)).data.availableCopies
+               == get(/databases/$(database)/documents/books/$(existing().bookId)).data.availableCopies + 1
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /auditLogs/{logId} {
+      allow get: if isVerified() && isValidId(logId) && (existing().actorUid == request.auth.uid || isLibrarian());
+      allow list: if isVerified() && (resource.data.actorUid == request.auth.uid || isLibrarian());
+
+      allow create: if isVerified()
+        && isValidId(logId)
+        && isValidAuditLog(incoming())
+        && incoming().actorUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && (
+          (incoming().actorRole == 'student' && incoming().actionType in ['emprunt', 'retour', 'reservation'])
+          || (incoming().actorRole == 'librarian' && isLibrarian() && incoming().actionType in [
+               'emprunt', 'retour', 'prolongation', 'relance', 'reservation',
+               'ajout_livre', 'modification_livre', 'suppression_livre',
+               'inscription_adherent', 'renouvellement_adherent', 'suspension_adherent', 'reactivation_adherent'
+             ])
+        );
+
+      allow update, delete: if false;
+    }
+  }
+}

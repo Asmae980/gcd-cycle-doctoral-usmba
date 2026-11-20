@@ -1,0 +1,6 @@
+{
+  "name": "Bibliothèque Universitaire — Gestion GI · GE · GIM · TM · RT",
+  "description": "Application web simple de gestion de bibliothèque universitaire pour les filières GI, GE, GIM, TM et RT : fonds documentaire, emprunts par QR, espace étudiant, espace bibliothécaire et journal d'actions.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
